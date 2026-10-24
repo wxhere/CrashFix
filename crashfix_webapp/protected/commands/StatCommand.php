@@ -72,8 +72,11 @@ class StatCommand extends CConsoleCommand
 			$criteria->condition = 'project_id=' . $projectID;
 			$criteria->order = 'version DESC';
 			$appVersions = AppVersion::model()->findAll($criteria);
+			$appVersions = array_reverse($appVersions);
 
 			$found_ver = false;
+			$version_count_in_project = 0;
+			$report_count_in_project = 0;
 			foreach ($appVersions as $appVersion) {
 				if ($v_appVer != "" && $v_appVer != $appVersion->version)
 					continue;
@@ -83,11 +86,20 @@ class StatCommand extends CConsoleCommand
 				$criteria->compare('project_id', $projectID, false, 'AND');
 				$criteria->compare('appversion_id', $appVerID, false, 'AND');
 				$count = CrashReport::model()->count($criteria);
-				echo " appver: $appVersion->version, report count = $count\n";
+
+				if ($count <= 0)
+					continue;
+
+				echo "  appver: $appVersion->version, report count = $count\n";
 				$found_ver = true;
+				$version_count_in_project++;
+				$report_count_in_project += $count;
 			}
 			if (!$found_ver)
 				echo " appver: $v_appVer, no report found\n";
+
+			echo "count of versions in $projectName = $version_count_in_project\n";
+			echo "count of reports in $projectName = $report_count_in_project\n";
 		}
 
 		// dump memory stop

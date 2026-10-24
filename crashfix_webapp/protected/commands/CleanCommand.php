@@ -69,52 +69,59 @@ class CleanCommand extends CConsoleCommand
 		$projectID = $project->getAttribute("id");
 		echo "\nfind project $projectName, id = $projectID\n";
 
-		$appVerion = AppVersion::model()->find(
-			'version=:version',
-			array(':version' => $appVer)
-		);
-		if ($appVerion === null)
-			throw new Exception('Such a version name not found');
-		$appVerionID = $appVerion->getAttribute("id");
-		echo "find appver $appVer, id = $appVerionID\n";
-
 		$criteria = new CDbCriteria;
-		$criteria->compare('project_id', $projectID, false, 'AND');
-		$criteria->compare('appversion_id', $appVerionID, false, 'AND');
-		$count = CrashReport::model()->count($criteria);
-		echo "CrashReport count = $count\n";
+		$criteria->condition = 'project_id=' . $projectID;
+		$criteria->order = 'version DESC';
+		$appVersions = AppVersion::model()->findAll($criteria);
+		$appVersions = array_reverse($appVersions);
 
-		$criteria = new CDbCriteria;
-		$criteria->compare('project_id', $projectID, false, 'AND');
-		$criteria->compare('appversion_id', $appVerionID, false, 'AND');
-		$criteria->limit = $limit;
-		$criteria->order = 'date_created ASC';
-		$reports = CrashReport::model()->findAll($criteria);
-		//$reports = array_merge($reports, $reports, $reports, $reports, $reports, $reports, $reports);
-		$index = 1;
-		$start_time = new DateTime;
-		foreach ($reports as &$report) {
-			echo "[" . $index++ . "/" . sizeof($reports) . "] deleting CrashReport received on " . date("Y-m-d H:i:s", $report->received) . "\n";
-			if (!$report->delete()) {
-				//throw new CHttpException(404, 'The specified record doesn\'t exist in the database or could not be deleted.');
-				echo "The specified record doesn\'t exist in the database or could not be deleted.\n";
-			}
-			$report = null;
-			//sleep(1);
-
-			$mem_usage = memory_get_usage();
-			if($mem_usage > 500 * 1024 * 1024){
-				echo "Memory usage = " . round($mem_usage / 1024 / 1024) . "MB\n";
-				echo "Out of memory, exit now!\n";
-				return 1;
+		foreach ($appVersions as $appVerion) {
+			if (substr($appVerion->version, 0, strlen($appVer)) != $appVer) {
+				continue;
 			}
 
-			if ($index % 10 == 1) {
-				$stop_time = new DateTime;
-				echo $index - 1 . " reports deleted, elapsed time = " . $stop_time->diff($start_time)->format("%h:%i:%s\n");
-				echo "Memory usage = " . round($mem_usage / 1024 / 1024) . "MB\n";
+			$appVerionID = $appVerion->getAttribute("id");
+			echo "\nfind appver $appVerion->version, id = $appVerionID\n";
+	
+			$criteria = new CDbCriteria;
+			$criteria->compare('project_id', $projectID, false, 'AND');
+			$criteria->compare('appversion_id', $appVerionID, false, 'AND');
+			$count = CrashReport::model()->count($criteria);
+			echo "CrashReport count = $count\n";
+	
+			$criteria = new CDbCriteria;
+			$criteria->compare('project_id', $projectID, false, 'AND');
+			$criteria->compare('appversion_id', $appVerionID, false, 'AND');
+			$criteria->limit = $limit;
+			$criteria->order = 'date_created ASC';
+			$reports = CrashReport::model()->findAll($criteria);
+			//$reports = array_merge($reports, $reports, $reports, $reports, $reports, $reports, $reports);
+			$index = 1;
+			$start_time = new DateTime;
+			foreach ($reports as &$report) {
+				echo "[" . $index++ . "/" . sizeof($reports) . "] deleting CrashReport received on " . date("Y-m-d H:i:s", $report->received) . "\n";
+				if (!$report->delete()) {
+					//throw new CHttpException(404, 'The specified record doesn\'t exist in the database or could not be deleted.');
+					echo "The specified record doesn\'t exist in the database or could not be deleted.\n";
+				}
+				$report = null;
+				//sleep(1);
+	
+				$mem_usage = memory_get_usage();
+				if($mem_usage > 500 * 1024 * 1024){
+					echo "Memory usage = " . round($mem_usage / 1024 / 1024) . "MB\n";
+					echo "Out of memory, exit now!\n";
+					return 1;
+				}
+	
+				if ($index % 10 == 1) {
+					$stop_time = new DateTime;
+					echo $index - 1 . " reports deleted, elapsed time = " . $stop_time->diff($start_time)->format("%h:%i:%s\n");
+					echo "Memory usage = " . round($mem_usage / 1024 / 1024) . "MB\n";
+				}
 			}
 		}
+
 		$stop_time = new DateTime;
 		echo sizeof($reports) . " reports deleted, elapsed time = " . $stop_time->diff($start_time)->format("%h:%i:%s\n");
 

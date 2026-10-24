@@ -451,16 +451,15 @@ class CrashReportController extends Controller
 
 		if($appname == "BitComet")
 		{
-			$ignored = array("1.81.10.1", "1.80.9.23", 
-			"1.79.8.25", "1.78.7.27", "1.77.5.3", "1.76.4.8", "1.75.2.18", "1.74.1.15", "1.73.11.27", "1.72.10.21", "1.71.9.7", 
-			"1.70.8.9", "1.69.7.8", "1.68.6.15", "1.67.5.6", "1.66.4.13", "1.65.3.16", "1.64.1.13", "1.63.12.20", "1.62.11.26", 
-			"1.62", "1.61", "1.60", "1.59", "1.58", "1.57", "1.56", "1.55", "1.54", "1.53", "1.52", "1.51", "1.50", "1.49");
-			if (in_array($appversion, $ignored))
-				return;
+			$ignored = array("1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "2.0", "2.1", "2.8");
+			foreach ($ignored as $ignoredVerion) {
+				if (substr($appversion, 0, strlen($ignoredVerion)) == $ignoredVerion)
+					return;
+			}
 		}
 		else if($appname == "TigerPlayer")
 		{
-			$ignored = array("4.6", "4.7", "4.8", "4.9");
+			$ignored = array("4.6", "4.7", "4.8", "4.9", "5.0");
 			if (in_array($appversion, $ignored))
 				return;
 		}
