@@ -132,6 +132,9 @@ You have no projects assigned.
 <?php $this->widget('zii.widgets.grid.CGridView', array(
       'dataProvider'=>$dataProvider,
 	  'selectableRows'=>null,
+      'afterAjaxUpdate'=>'js:function() {
+          jQuery("form[name=del_form]").trigger("change.debugInfoSelection");
+      }',
       'columns'=>array(
 		  array(            
               'class'=>'CCheckBoxColumn',			  			  
@@ -193,17 +196,14 @@ You have no projects assigned.
 
  <?php 
  $script = <<<SCRIPT
-// $(":checkbox").live('click', function(e)
-// {	
-// 	var totalSelected = 0;
-// 	$("input[name='DeleteRows\[\]']").each(function() {if($(this).attr('checked')) totalSelected++;});
-	
-// 	if(totalSelected==0)
-// 		$("#delete_selected").css('visibility', 'hidden');
-// 	else
-// 		$("#delete_selected").css('visibility', 'visible');
-	
-// });
+function updateDebugInfoSelection()
+{
+	var hasSelection = $("form[name='del_form'] input[name='DeleteRows[]']:checked").length > 0;
+	$("#delete_selected").css('visibility', hasSelection ? 'visible' : 'hidden');
+}
+
+$("form[name='del_form']").on('change.debugInfoSelection', updateDebugInfoSelection);
+updateDebugInfoSelection();
 
 $("#proj, #ver").bind('change', function(e)
 {	

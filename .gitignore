@@ -66,3 +66,4 @@ crashfix_service/service_installer/NSISPlugins/nsis_plugind.dll
 /crashfix_service/conf/crashfixd.conf
 .vs
 *.reg
+/.codegraph/
