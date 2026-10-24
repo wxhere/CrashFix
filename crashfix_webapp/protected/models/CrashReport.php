@@ -1510,14 +1510,48 @@ class CrashReport extends CActiveRecord
 			$graph->render($w, $h, $file);
 	}
     
+    // Correct old client branding while retaining the original report fields.
+    public function getOSDisplayName()
+    {
+        $name = (string)$this->os_name_reg;
+        if (preg_match('/^1(?:\s|$)/', (string)$this->product_type) &&
+            preg_match('/^10\.0\.([0-9]+)(?:\s.*)?$/D', (string)$this->os_ver_mdmp, $version) &&
+            (int)$version[1] >= 22000)
+            return preg_replace('/^Windows 10(?= |$)/', 'Windows 11', $name);
+        return $name;
+    }
+
+    // Aggregate after normalization so old and fixed clients share one chart entry.
+    public static function getOSVersionDistribution()
+    {
+        $projectId = Yii::app()->user->getCurProjectId();
+        if ($projectId == false)
+            throw new CHttpException(403, 'Invalid parameter');
+        $criteria = new CDbCriteria;
+        $criteria->select = 'os_name_reg, os_ver_mdmp, product_type, COUNT(*) as cnt';
+        $criteria->group = 'os_name_reg, os_ver_mdmp, product_type';
+        $criteria->compare('t.project_id', $projectId);
+        $version = null;
+        Yii::app()->user->getCurProjectVersions($version);
+        if ($version != -1)
+            $criteria->compare('appversion_id', $version == 0 ? null : $version);
+        $counts = array();
+        foreach (self::model()->findAll($criteria) as $report) {
+            $name = $report->getOSDisplayName();
+            if ($name === '') $name = '(not set)';
+            if (!isset($counts[$name])) $counts[$name] = 0;
+            $counts[$name] += (int)$report->cnt;
+        }
+        arsort($counts, SORT_NUMERIC);
+        return $counts;
+    }
+
     /**
-	 * Generates a crash report OS version distribution graph for currently 
-	 * selected project and dumps it to stdout.
-	 * @param type $w Desired image width.
-	 * @param type $h Desired image height.
-	 * @throws CHttpException
-	 * @return void
-	 */
+     * Generates the OS distribution graph for the selected project and release.
+     * @param integer $w Image width.
+     * @param integer $h Image height.
+     * @param string $file Optional output path; null writes to stdout.
+     */
 	public static function generateOSVersionDistributionGraph($w, $h, $file=null)
 	{
 		if(!is_numeric($w) || $w<=0 || $w>1024)
@@ -1526,53 +1560,28 @@ class CrashReport extends CActiveRecord
 		if(!is_numeric($h) || $h<=0 || $h>960)
 			throw new CHttpException(403, 'Invalid parameter');
 		
-		// Get current project info
-		$curProjectId = Yii::app()->user->getCurProjectId();
-		if($curProjectId==false)
-			throw new CHttpException(403, 'Invalid parameter');
-                
-		// Prepare data
-		$criteria = new CDbCriteria();
-		$criteria->select = 'os_name_reg, COUNT(*) as cnt';
-        $criteria->order = 'cnt DESC';
-		$criteria->group = 'os_name_reg';        
-		$criteria->compare('t.project_id', $curProjectId);		
-        
-		$curVer = '(not set)';
-		$versions = Yii::app()->user->getCurProjectVersions($curVer);
-		
-        if($curVer!=-1) // -1 means '<all>'
-        {
-            $criteria->compare('appversion_id', $curVer==0?null:$curVer);		
-        }		
-		
-		$data = array();
-		$models = CrashReport::model()->findAll($criteria);
-		$totalCount = 0;					
-		foreach($models as $model)
-		{
-			$totalCount += $model->cnt;			            
-		}
+        $counts = self::getOSVersionDistribution();
+        $totalCount = array_sum($counts);
+        $data = array();
         
         $itemCount=0;
         $others=0;
-        foreach($models as $model)
+        foreach($counts as $osName=>$count)
 		{			
             $itemCount++;
             if($itemCount>10)
             {
-                $others += $model->cnt;
+                $others += $count;
                 continue;
             }
             
-            $osName = strlen($model->os_name_reg)!=0?$model->os_name_reg:"(not set)";
-            $percent = 100*$model->cnt/$totalCount;
+            $percent = 100*$count/$totalCount;
             $label = sprintf('(%0.1f%%) %s', $percent, $osName);
             $label = MiscHelpers::addEllipsis($label, 60);
             if(array_key_exists($label, $data))
-                $data[$label] += $model->cnt;
+                $data[$label] += $count;
             else
-                $data[$label] = $model->cnt;			
+                $data[$label] = $count;
 		}
         
         if($others>0)

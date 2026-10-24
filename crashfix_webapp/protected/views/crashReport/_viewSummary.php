@@ -203,7 +203,11 @@ $this->widget('zii.widgets.CDetailView', array(
 $this->widget('zii.widgets.CDetailView', array(
 	'data'=>$model,
 	'attributes'=>array(		
-		'os_name_reg',
+        array(
+            'name'=>'os_name_reg',
+            'type'=>'text',
+            'value'=>$model->getOSDisplayName(),
+        ),
 		'os_ver_mdmp',
 		array(        
 			'name'=>'os_is_64bit',
