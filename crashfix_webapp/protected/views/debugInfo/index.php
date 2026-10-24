@@ -14,7 +14,7 @@ You have no projects assigned.
 
 <!-- Project Selection Form -->
 <div class="span-27 last" id="div_proj_selection">	
-	<?php echo CHtml::beginForm(array('site/setCurProject'), 'get', array('id'=>'proj_form')); ?>
+	<?php echo CHtml::beginForm(array('debugInfo/index'), 'get', array('id'=>'proj_form')); ?>
 	<div class="span-27 last">
 		Current Project:
 		<?php 		
@@ -24,9 +24,7 @@ You have no projects assigned.
 		?>					
 		Version:
 		<?php 		
-			$selVer = -1;
-			$versions = Yii::app()->user->getCurProjectVersions($selVer);			
-			echo CHtml::dropDownList('ver', array('selected'=>$selVer), $versions); 
+            echo CHtml::dropDownList('releaseVersion', $model->releaseVersion, $releaseVersions, array('id'=>'ver'));
 		?>					
 	</div>
 	<?php echo CHtml::endForm(); ?>
@@ -35,6 +33,7 @@ You have no projects assigned.
 <!-- Simple Search Form -->
 <div class="span-27 last" style="display:<?php echo !$model->isAdvancedSearch?'inherit':'none'?>" id="div_simple_search">
 	<?php echo CHtml::beginForm(array('debugInfo/index'), 'get'); ?>
+    <?php echo CHtml::hiddenField('releaseVersion', $model->releaseVersion); ?>
 	<div class="span-27 last"><p id="stat_filter">Search by file name/GUID or use <a href="#" id="link_advanced_search">advanced search</a>:</p></div>
 	<div class="span-25">
 		<?php echo CHtml::textField('q', isset($model->filter) ? CHtml::encode($model->filter):"", array('id'=>'text_filter')); ?>
@@ -48,7 +47,7 @@ You have no projects assigned.
 <!-- Advanced Search Form -->
 <div class="span-27 last" id="div_advanced_search" style="display:<?php echo $model->isAdvancedSearch?'inherit':'none'?>">	
 	<div class="wide form" id="form_advanced_search">
-	<?php echo CHtml::beginForm(array('debugInfo/index'), 'post'); ?>
+	<?php echo CHtml::beginForm(array('debugInfo/index', 'releaseVersion'=>$model->releaseVersion), 'post'); ?>
 	
 	<h4>Advanced Search:</h4>
 	<?php echo CHtml::errorSummary($model); ?>
@@ -109,6 +108,7 @@ You have no projects assigned.
 
 <div class="span-27 last" >
 <?php echo CHtml::beginForm(array('debugInfo/deleteMultiple'), 'post', array('name'=>'del_form')); ?>
+<?php echo CHtml::hiddenField('project_id', Yii::app()->user->getCurProjectId()); ?>
 
 <!-- Actions Toolbar -->
 <div class="span-27 last">
@@ -123,6 +123,16 @@ You have no projects assigned.
 						'confirm'=>"Are you sure you want to permanently delete selected debug info file(s)?"
 					)); 
 		?>		
+        <?php if (Yii::app()->user->checkAccess('pperm_manage_debug_info', array('project_id'=>Yii::app()->user->getCurProjectId()))): ?>
+        <span id="assign_release" style="visibility:hidden">
+            <?php echo CHtml::label('Release Version:', 'assign_appversion'); ?>
+            <?php echo CHtml::dropDownList('appversion_id', 0, DebugInfo::getReleaseVersions(Yii::app()->user->getCurProjectId()), array('id'=>'assign_appversion')); ?>
+            <?php echo CHtml::submitButton('Set Release Version', array(
+                'formaction'=>$this->createUrl('debugInfo/assignVersion'),
+                'confirm'=>'Set the release version for all selected files?'
+            )); ?>
+        </span>
+        <?php endif; ?>
 	</div>	
 </div>
 
@@ -150,7 +160,11 @@ You have no projects assigned.
 			  'type' => 'raw',
 			  'value' => 'CHtml::link($data->filename, \'view/\'.$data->id)',	  			  			  
           ),
-		  array(            // display 'filesize' using a formatted string			  
+          array(
+              'name'=>'appversion_id',
+              'value'=>'$data->getReleaseVersionLabel()',
+          ),
+          array(            // display 'filesize' using a formatted string
 			  'header'=>'Size',			  
               'name'=>'filesize',
               'value'=>'MiscHelpers::fileSizeToStr($data->filesize)',
@@ -199,7 +213,7 @@ You have no projects assigned.
 function updateDebugInfoSelection()
 {
 	var hasSelection = $("form[name='del_form'] input[name='DeleteRows[]']:checked").length > 0;
-	$("#delete_selected").css('visibility', hasSelection ? 'visible' : 'hidden');
+	$("#delete_selected, #assign_release").css('visibility', hasSelection ? 'visible' : 'hidden');
 }
 
 $("form[name='del_form']").on('change.debugInfoSelection', updateDebugInfoSelection);
@@ -207,6 +221,8 @@ updateDebugInfoSelection();
 
 $("#proj, #ver").bind('change', function(e)
 {	
+    if (this.id === 'proj')
+        $("#ver").val('-1');
 	$("#proj_form").submit();
 });
 

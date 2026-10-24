@@ -265,6 +265,7 @@ class BatchImporter
                 // Create new AR record
                 $debugInfo = new DebugInfo();
                 $debugInfo->project_id = $projectId;       
+                $debugInfo->appversion_id = $projVerId;
                 $debugInfo->guid = 'tmp_'.MiscHelpers::GUID();
                 $debugInfo->fileAttachment = new CUploadedFile(
 												$file, 

@@ -44,7 +44,8 @@ class DebugInfoController extends Controller
 					'uploadStat',
 					'delete', 
 					'deleteMultiple', 
-					'uploadFile'
+					'uploadFile',
+                    'assignVersion'
 				),
 				'users'=>array('@'),
 			),						
@@ -73,6 +74,17 @@ class DebugInfoController extends Controller
 		
 		// Create new model that will contain search options.
 		$model = new DebugInfo('search');
+        if (isset($_GET['proj'])) {
+            if (!is_scalar($_GET['proj']) || !Yii::app()->user->setCurProjectId($_GET['proj']))
+                throw new CHttpException(403, 'Invalid project.');
+            $this->checkAuthorization(null);
+        }
+        $projectId = Yii::app()->user->getCurProjectId();
+        $model->releaseVersion = isset($_GET['releaseVersion']) ? $_GET['releaseVersion'] :
+            ($projectId === false ? -1 : Yii::app()->user->getCurProjectVer());
+        $releaseVersions = DebugInfo::getReleaseVersions($projectId, true);
+        if (!is_scalar($model->releaseVersion) || !array_key_exists($model->releaseVersion, $releaseVersions))
+            throw new CHttpException(400, 'Invalid release version.');
 		
 		// Fill model fields
 		if(isset($_GET['q']))
@@ -93,8 +105,41 @@ class DebugInfoController extends Controller
 		$this->render('index', array(
 			'dataProvider'=>$dataProvider,
 			'model'=>$model,
+            'releaseVersions'=>$releaseVersions,
 		));
 	}
+
+    public function actionAssignVersion()
+    {
+        if (!Yii::app()->request->isPostRequest || !isset($_POST['DeleteRows'], $_POST['project_id'], $_POST['appversion_id']) ||
+            !is_array($_POST['DeleteRows']) || count($_POST['DeleteRows']) === 0 ||
+            !is_scalar($_POST['project_id']) || !ctype_digit((string)$_POST['project_id']))
+            throw new CHttpException(400, 'Select files and a release version.');
+
+        $projectId = $_POST['project_id'];
+        $transaction = Yii::app()->db->beginTransaction();
+        try {
+            foreach ($_POST['DeleteRows'] as $id) {
+                if (!is_scalar($id) || !ctype_digit((string)$id))
+                    throw new CHttpException(400, 'Invalid file ID.');
+                $model = $this->loadModel($id);
+                $this->checkAuthorization($model, 'pperm_manage_debug_info');
+                if ($model->project_id != $projectId)
+                    throw new CHttpException(400, 'Selected files must belong to the same project.');
+                $model->appversion_id = $_POST['appversion_id'];
+                if (!$model->validate(array('appversion_id')))
+                    throw new CHttpException(400, 'Release version must belong to the selected project.');
+                // Update metadata only; do not overwrite concurrent daemon status changes.
+                if (!$model->saveAttributes(array('appversion_id')))
+                    throw new CHttpException(500, 'Could not save release version.');
+            }
+            $transaction->commit();
+        } catch (Exception $e) {
+            $transaction->rollback();
+            throw $e;
+        }
+        $this->redirect(array('debugInfo/index', 'proj'=>$projectId, 'releaseVersion'=>-1));
+    }
 	
 	/**
 	 * This is the 'view' action that is invoked
@@ -202,15 +247,25 @@ class DebugInfoController extends Controller
 	public function actionUploadFile()
 	{	
 		// Check if user is authorized to perform this action
-		$this->checkAuthorization(null);
+        if (!isset($_POST['DebugInfo']))
+            $this->checkAuthorization(null);
 		
 		$model = new DebugInfo('create');
 		$submitted = false;
+        $model->project_id = Yii::app()->user->getCurProjectId();
+        $currentVersion = Yii::app()->user->getCurProjectVer();
+        $model->appversion_id = $currentVersion > 0 ? $currentVersion : null;
 		
 		if(isset($_POST['DebugInfo']))
 		{			
 			$submitted = true;
 			$model->attributes = $_POST['DebugInfo'];					
+            if (!isset($_POST['DebugInfo']['project_id']) || !is_scalar($_POST['DebugInfo']['project_id']) ||
+                !ctype_digit((string)$_POST['DebugInfo']['project_id']) || !array_key_exists('appversion_id', $_POST['DebugInfo']))
+                throw new CHttpException(400, 'Project and release version are required.');
+            $model->project_id = $_POST['DebugInfo']['project_id'];
+            $model->project_name = null;
+            $this->checkAuthorization($model, 'pperm_manage_debug_info');
 			$model->guid = 'tmp_'.MiscHelpers::GUID();
 						
 			if($model->validate())

@@ -49,6 +49,11 @@ if(count($processingErrors)>0):
             'value'=>date("d/m/y H:i", $model->dateuploaded),
         ),
 		'filename',
+        array(
+            'name'=>'appversion_id',
+            'type'=>'text',
+            'value'=>$model->getReleaseVersionLabel(),
+        ),
 		array(  
             'name'=>'status',
             'type'=>'text',

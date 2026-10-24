@@ -21,6 +21,7 @@ class DebugInfo extends CActiveRecord
 	
 	// Search-related attributes.
 	public $filter; // Simple search filter
+    public $releaseVersion; // -1: all, 0: unassigned, positive: AppVersion ID.
 	public $isAdvancedSearch = false; // Advanced search flag
 	public $dateFrom; // Date uploaded from
 	public $dateTo; // Date uploaded to
@@ -50,6 +51,7 @@ class DebugInfo extends CActiveRecord
 		// NOTE: you should only define rules for those attributes that
 		// will receive user inputs.
 		return array(			
+				array('appversion_id', 'validateReleaseVersion', 'except'=>'search'),
 			array('guid', 'required', 'on'=>'create, update'),						
 			array('guid', 'checkFileGUIDExists', 'on'=>'create'),
 			array('project_name', 'length', 'max'=>64),									
@@ -440,8 +442,47 @@ class DebugInfo extends CActiveRecord
 		// NOTE: you may need to adjust the relation name and the related
 		// class name for the relations automatically generated below.
 		return array(
+            'releaseVersionRecord'=>array(self::BELONGS_TO, 'AppVersion', 'appversion_id'),
 		);
 	}
+
+    public static function getReleaseVersions($projectId, $includeAll=false)
+    {
+        $versions = array(0=>'(unassigned)');
+        if ($includeAll)
+            $versions = array(-1=>'(all)') + $versions;
+        foreach (AppVersion::model()->findAllByAttributes(array('project_id'=>$projectId), array('order'=>'version DESC')) as $version)
+            $versions[$version->id] = $version->version;
+        return $versions;
+    }
+
+    public function getReleaseVersionLabel()
+    {
+        return $this->releaseVersionRecord === null ? '(unassigned)' : $this->releaseVersionRecord->version;
+    }
+
+    public function validateReleaseVersion($attribute, $params)
+    {
+        $value = $this->$attribute;
+        if ($value === null || $value === '' || $value === 0 || $value === '0') {
+            $this->$attribute = null;
+            return;
+        }
+        if (!is_scalar($value) || !preg_match('/^[1-9][0-9]*$/D', (string)$value)) {
+            $this->addError($attribute, 'Invalid release version.');
+            return;
+        }
+        $projectId = $this->project_id;
+        if (isset($this->project_name)) {
+            $project = Project::model()->findByAttributes(array('name'=>$this->project_name));
+            $projectId = $project === null ? null : $project->id;
+        } elseif ($projectId === null) {
+            $projectId = Yii::app()->user->getCurProjectId();
+        }
+        $version = AppVersion::model()->findByAttributes(array('id'=>$value, 'project_id'=>$projectId));
+        if ($projectId === null || $version === null)
+            $this->addError($attribute, 'Release version must belong to the selected project.');
+    }
 
 	/**
 	 * @return array customized attribute labels (name=>label)
@@ -454,6 +495,7 @@ class DebugInfo extends CActiveRecord
 			'filename' => 'File Name',	
 			'filesize' => 'File Size',	
 			'guid' => 'GUID+Age',	
+            'appversion_id' => 'Release Version',
 		);
 	}	
 	
@@ -497,7 +539,13 @@ class DebugInfo extends CActiveRecord
 				$criteria->addBetweenCondition('dateuploaded', $this->strToDate($this->dateFrom), $this->strToDate($this->dateTo), 'AND');										
 		}
 				
-		$criteria->compare('project_id', $curProjectId, false, 'AND');
+			$criteria->compare('t.project_id', $curProjectId, false, 'AND');
+        $releaseVersion = $this->releaseVersion === null ? Yii::app()->user->getCurProjectVer() : $this->releaseVersion;
+        if ((string)$releaseVersion === '0')
+            $criteria->addCondition('appversion_id IS NULL');
+        elseif ((string)$releaseVersion !== '-1')
+            $criteria->compare('appversion_id', $releaseVersion);
+        $criteria->with = array('releaseVersionRecord');
 		        
 		// Perform search
 		$dataProvider = new CActiveDataProvider($this, array(

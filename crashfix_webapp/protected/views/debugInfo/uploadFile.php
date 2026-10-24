@@ -17,12 +17,8 @@ $this->breadcrumbs=array(
 			$projects = CHtml::listData($models, 'id', 'name');			
 			echo CHtml::dropDownList('proj', array('selected'=>Yii::app()->user->getCurProjectId()), $projects); 			
 		?>					
-		Version:
-		<?php 		
-			$selVer = -1;
-			$versions = Yii::app()->user->getCurProjectVersions($selVer);			
-			echo CHtml::dropDownList('ver', array('selected'=>$selVer), $versions); 
-		?>		
+        <?php echo CHtml::hiddenField('ver', Project::PROJ_VER_ALL); ?>
+        <?php echo CHtml::submitButton('Change Project'); ?>
 	</div>
 	<?php echo CHtml::endForm(); ?>		
 </div>
@@ -48,6 +44,13 @@ $this->breadcrumbs=array(
 	<?php echo $form->errorSummary($model); ?>
 
 	<?php echo $form->hiddenField($model, 'guid'); ?>
+    <?php echo $form->hiddenField($model, 'project_id'); ?>
+
+    <div class="row">
+        <?php echo $form->label($model, 'appversion_id'); ?>
+        <?php echo $form->dropDownList($model, 'appversion_id', DebugInfo::getReleaseVersions($model->project_id)); ?>
+        <?php echo $form->error($model, 'appversion_id'); ?>
+    </div>
 	
 	<div class="row">
 		<?php echo $form->label($model, 'fileAttachment'); ?>
