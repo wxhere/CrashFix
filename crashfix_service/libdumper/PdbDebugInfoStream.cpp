@@ -56,7 +56,7 @@ BOOL CPdbDebugInfoStream::Init(CPdbReader* pPdbReader, CMsfStream* pStream)
     m_nSymStream = pHdr->wSymStreamNumber;
 
     // Get section map stream
-    pSectionStream = pPdbReader->GetSectionMapStream();      
+    pSectionStream = pPdbReader->GetSectionMapStream();
     assert(pSectionStream!=NULL);
     if(!pSectionStream)
         return FALSE;

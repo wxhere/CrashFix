@@ -338,7 +338,7 @@ CPdbSectionMapStream* CPdbReader::GetSectionMapStream()
         BOOL bResult = FALSE;
 
         // Try streams #9, #8, #10
-        int try_streams[] = { 9, 8 , 10, 11 };
+        int try_streams[] = { 9, 8 , 10, 11, 12 };
         int i;
         for (i = 0; i < sizeof(try_streams)/sizeof(try_streams[0]); ++i) {
             int stream = try_streams[i];

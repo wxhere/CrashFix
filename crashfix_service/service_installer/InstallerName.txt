@@ -1,1 +1,1 @@
-crashfix-service-1.0.4-Win32.exe 
+crashfix-service-1.0.5-Win32.exe 

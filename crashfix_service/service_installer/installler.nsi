@@ -2,7 +2,7 @@
 # To compile this script you need NSIS (NullSoft Installation System) to be previously installed
 
 !define PRODUCT_NAME "CrashFix"
-!define PRODUCT_VERSION "1.0.4"
+!define PRODUCT_VERSION "1.0.5"
 !define PRODUCT_PUBLISHER "IP Oleg Krivtsov"
 !define PRODUCT_WEB_SITE "http://crashfix.sourceforge.net"
 !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
