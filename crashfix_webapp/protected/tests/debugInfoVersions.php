@@ -113,13 +113,38 @@ verify($batch->importFiles($runtime.'/import', $crashes, $symbols) && $symbols =
 verify(DebugInfo::model()->findByAttributes(array('filename'=>'directory.pdb'))->appversion_id == 1, 'directory import saves its directory release');
 
 require_once $base.'/controllers/DebugInfoController.php';
+class ReleaseAffectedRowsDebugInfo extends DebugInfo
+{
+    public $loadedVersion;
+    public static $saveCalls = 0;
+    public static $failOnId = null;
+    public function saveAttributes($attributes)
+    {
+        ++self::$saveCalls;
+        if ($this->appversion_id == $this->loadedVersion || $this->id == self::$failOnId)
+            return false;
+        return parent::saveAttributes($attributes);
+    }
+}
 class ReleaseTestController extends DebugInfoController
 {
     public $rendered;
     public function redirect($url, $terminate=true, $statusCode=302) {}
     public function render($view, $data=null, $return=false) { $this->rendered = $data; }
 }
+class ReleaseAffectedRowsController extends ReleaseTestController
+{
+    public function loadModel($id)
+    {
+        $model = ReleaseAffectedRowsDebugInfo::model('ReleaseAffectedRowsDebugInfo')->findByPk($id);
+        if ($model === null)
+            throw new CHttpException(404, 'The requested page does not exist.');
+        $model->loadedVersion = $model->appversion_id;
+        return $model;
+    }
+}
 $controller = new ReleaseTestController('debugInfo');
+$affectedRowsController = new ReleaseAffectedRowsController('debugInfo');
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $app->user->currentProject = 2;
 $_POST = array('DebugInfo'=>array('project_id'=>1, 'appversion_id'=>1));
@@ -130,8 +155,21 @@ $_POST = array('DeleteRows'=>array(1,2), 'project_id'=>1, 'appversion_id'=>2);
 $controller->actionAssignVersion();
 verify(DebugInfo::model()->findByPk(1)->appversion_id == 2 && DebugInfo::model()->findByPk(2)->appversion_id == 2, 'batch assignment persists all selected files');
 verify(DebugInfo::model()->findByPk(1)->status == 3, 'batch assignment preserves processing status');
-$_POST['DeleteRows'] = array(1,4);
+$_POST['appversion_id'] = '2';
+$affectedRowsController->actionAssignVersion();
+verify(DebugInfo::model()->findByPk(1)->appversion_id == 2 && DebugInfo::model()->findByPk(2)->appversion_id == 2, 'repeating the same batch assignment succeeds');
+verify(ReleaseAffectedRowsDebugInfo::$saveCalls === 0, 'unchanged assignments skip the database write');
 $_POST['appversion_id'] = 1;
+ReleaseAffectedRowsDebugInfo::$failOnId = 2;
+try {
+    $affectedRowsController->actionAssignVersion();
+    throw new Exception('Expected failed database update');
+} catch (CHttpException $e) {
+    verify($e->statusCode === 500, 'changed version write failure remains HTTP 500');
+}
+ReleaseAffectedRowsDebugInfo::$failOnId = null;
+verify(DebugInfo::model()->findByPk(1)->appversion_id == 2 && DebugInfo::model()->findByPk(2)->appversion_id == 2, 'database write failure rolls back earlier changes');
+$_POST['DeleteRows'] = array(1,4);
 try {
     $controller->actionAssignVersion();
     throw new Exception('Expected forbidden foreign project');
@@ -159,6 +197,12 @@ $app->user->canManage = true;
 $_POST['appversion_id'] = 0;
 $controller->actionAssignVersion();
 verify(DebugInfo::model()->findByPk(1)->appversion_id === null, 'batch assignment can clear release');
+$affectedRowsController->actionAssignVersion();
+verify(DebugInfo::model()->findByPk(1)->appversion_id === null, 'repeating clear on an unassigned file succeeds');
+$_POST['appversion_id'] = '';
+$affectedRowsController->actionAssignVersion();
+verify(DebugInfo::model()->findByPk(1)->appversion_id === null, 'empty release selection also leaves an unassigned file unchanged');
+verify(ReleaseAffectedRowsDebugInfo::$saveCalls === 2, 'repeating clear skips the database write');
 $_SERVER['REQUEST_METHOD'] = 'GET';
 try {
     $controller->actionAssignVersion();

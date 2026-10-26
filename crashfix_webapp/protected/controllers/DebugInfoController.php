@@ -126,11 +126,13 @@ class DebugInfoController extends Controller
                 $this->checkAuthorization($model, 'pperm_manage_debug_info');
                 if ($model->project_id != $projectId)
                     throw new CHttpException(400, 'Selected files must belong to the same project.');
+                $currentVersion = $model->appversion_id === null ? null : (string)$model->appversion_id;
                 $model->appversion_id = $_POST['appversion_id'];
                 if (!$model->validate(array('appversion_id')))
                     throw new CHttpException(400, 'Release version must belong to the selected project.');
                 // Update metadata only; do not overwrite concurrent daemon status changes.
-                if (!$model->saveAttributes(array('appversion_id')))
+                $targetVersion = $model->appversion_id === null ? null : (string)$model->appversion_id;
+                if ($currentVersion !== $targetVersion && !$model->saveAttributes(array('appversion_id')))
                     throw new CHttpException(500, 'Could not save release version.');
             }
             $transaction->commit();
