@@ -4,10 +4,11 @@ class CleanCommand extends CConsoleCommand
 {
 	public function getOptionHelp()
 	{
-		$help = "project=<name> appver=<ver> [limit=<number>]";
+		$help = "project=<name> appver=<ver> [limit=<number>] [deleteversion=1 maintenance=1]";
 
 		$options = array();
 		$options[] = $help;
+		$options[] = "Stop web uploads and Poll import before using maintenance=1; the legacy schema has no version foreign keys.";
 		return $options;
 	}
 
@@ -28,7 +29,7 @@ class CleanCommand extends CConsoleCommand
 
 		//echo "cmdline args = " . var_export($args, TRUE) . "\n";
 
-		$keys = ["project", "appver", "limit"];
+		$keys = ["project", "appver", "limit", "deleteversion", "maintenance"];
 		$options = [];
 		foreach ($args as $arg) {
 			parse_str($arg, $output);
@@ -55,10 +56,23 @@ class CleanCommand extends CConsoleCommand
 			$limit = intval($options["limit"]);
 		if ($limit == 0)
 			$limit = 10;
+		$deleteVersion = false;
+		if (array_key_exists("deleteversion", $options)) {
+			if (!is_scalar($options["deleteversion"]) ||
+				!in_array($options["deleteversion"], array("0", "1"), true))
+				throw new Exception('deleteversion must be 0 or 1');
+			$deleteVersion = $options["deleteversion"] === "1";
+		}
+		if ($deleteVersion && array_key_exists("limit", $options) &&
+			(!is_scalar($options["limit"]) || !preg_match('/^[1-9][0-9]*$/D', (string)$options["limit"])))
+			throw new Exception('deleteversion requires a positive integer limit');
+		if ($deleteVersion && (!isset($options["maintenance"]) || $options["maintenance"] !== "1"))
+			throw new Exception('Stop web uploads and Poll import, then pass maintenance=1 to delete a version');
 		echo "\nInput options: \n";
 		echo "projectName = " . $projectName . "\n";
 		echo "appver = " . $appVer . "\n";
 		echo "limit = " . $limit . "\n";
+		echo "deleteversion = " . ($deleteVersion ? "1" : "0") . "\n";
 
 		$project = Project::model()->find(
 			'name=:name',
@@ -74,6 +88,13 @@ class CleanCommand extends CConsoleCommand
 		$criteria->order = 'version DESC';
 		$appVersions = AppVersion::model()->findAll($criteria);
 		$appVersions = array_reverse($appVersions);
+		if ($deleteVersion) {
+			$appVersions = array_values(array_filter($appVersions, function($version) use ($appVer) {
+				return $version->version === $appVer;
+			}));
+			if (count($appVersions) !== 1)
+				throw new Exception('deleteversion requires exactly one existing version with an exact name match');
+		}
 
 		foreach ($appVersions as $appVerion) {
 			if (substr($appVerion->version, 0, strlen($appVer)) != $appVer) {
@@ -120,6 +141,8 @@ class CleanCommand extends CConsoleCommand
 					echo "Memory usage = " . round($mem_usage / 1024 / 1024) . "MB\n";
 				}
 			}
+			if ($deleteVersion)
+				$this->deleteVersionIfUnused($projectID, $appVerion);
 		}
 
 		$stop_time = new DateTime;
@@ -142,5 +165,55 @@ class CleanCommand extends CConsoleCommand
 		Yii::log("Leaving the method run()", "info");
 		echo "\nLeaving the method run()\n";
 		return 0;
+	}
+
+	private function deleteVersionIfUnused($projectID, $version)
+	{
+		$db = Yii::app()->db;
+		$transaction = $db->beginTransaction();
+		$versionID = (int)$version->id;
+		$params = array(':versionID'=>$versionID);
+		try {
+			$remaining = (int)$db->createCommand(
+				'SELECT COUNT(*) FROM {{crashreport}} WHERE appversion_id=:versionID'
+			)->queryScalar($params);
+			if ($remaining > 0) {
+				$transaction->rollback();
+				echo "Version $version->version retained: $remaining crash reports remain.\n";
+				return;
+			}
+
+			$checks = array(
+				'bug' => 'SELECT COUNT(*) FROM {{bug}} WHERE appversion_id=:versionID',
+				'debug info' => 'SELECT COUNT(*) FROM {{debuginfo}} WHERE appversion_id=:versionID',
+				'collection reports' => 'SELECT COUNT(*) FROM {{crashreport}} WHERE groupid IN '
+					.'(SELECT id FROM {{crashgroup}} WHERE appversion_id=:versionID)',
+				'bug collection links' => 'SELECT COUNT(*) FROM {{bug_crashgroup}} bc '
+					.'JOIN {{crashgroup}} cg ON cg.id=bc.crashgroup_id WHERE cg.appversion_id=:versionID',
+			);
+			foreach ($checks as $name=>$sql) {
+				$count = (int)$db->createCommand($sql)->queryScalar($params);
+				if ($count > 0)
+					throw new Exception("Cannot delete version $version->version: $count $name records still reference it.");
+			}
+
+			$groups = CrashGroup::model()->findAllByAttributes(array(
+				'project_id'=>$projectID, 'appversion_id'=>$versionID,
+			));
+			foreach ($groups as $group) {
+				if (!$group->delete())
+					throw new Exception("Could not delete empty collection $group->id.");
+			}
+			$db->createCommand()->update('{{user}}', array('cur_appversion_id'=>null),
+				'cur_appversion_id=:versionID', $params);
+			if (!$version->delete())
+				throw new Exception("Could not delete version $version->version.");
+			$transaction->commit();
+			echo "Deleted version $version->version and " . count($groups) . " empty collections.\n";
+		} catch (Exception $e) {
+			if ($transaction->active)
+				$transaction->rollback();
+			throw $e;
+		}
 	}
 };
