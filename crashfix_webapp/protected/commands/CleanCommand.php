@@ -8,6 +8,7 @@ class CleanCommand extends CConsoleCommand
 
 		$options = array();
 		$options[] = $help;
+		$options[] = "project=<name> emptyversions=1 maintenance=1 (skip versions still referenced by other records)";
 		$options[] = "Stop web uploads and Poll import before using maintenance=1; the legacy schema has no version foreign keys.";
 		return $options;
 	}
@@ -29,7 +30,7 @@ class CleanCommand extends CConsoleCommand
 
 		//echo "cmdline args = " . var_export($args, TRUE) . "\n";
 
-		$keys = ["project", "appver", "limit", "deleteversion", "maintenance"];
+		$keys = ["project", "appver", "limit", "deleteversion", "maintenance", "emptyversions"];
 		$options = [];
 		foreach ($args as $arg) {
 			parse_str($arg, $output);
@@ -45,6 +46,25 @@ class CleanCommand extends CConsoleCommand
 			$projectName = $options["project"];
 		else
 			throw new Exception('project name not found in parameters');
+
+		$emptyVersions = false;
+		if (array_key_exists("emptyversions", $options)) {
+			if (!in_array($options["emptyversions"], array("0", "1"), true))
+				throw new Exception('emptyversions must be 0 or 1');
+			$emptyVersions = $options["emptyversions"] === "1";
+		}
+		if ($emptyVersions) {
+			foreach (array('appver', 'limit', 'deleteversion') as $key) {
+				if (array_key_exists($key, $options))
+					throw new Exception('emptyversions cannot be combined with '.$key);
+			}
+			if (!isset($options['maintenance']) || $options['maintenance'] !== '1')
+				throw new Exception('Stop web uploads and Poll import, then pass maintenance=1 to delete empty versions');
+			$project = Project::model()->findByAttributes(array('name'=>$projectName));
+			if ($project === null)
+				throw new Exception('Such a project name not found');
+			return $this->deleteEmptyVersions($project->id);
+		}
 
 		if (array_key_exists("appver", $options))
 			$appVer = $options["appver"];
@@ -167,7 +187,25 @@ class CleanCommand extends CConsoleCommand
 		return 0;
 	}
 
-	private function deleteVersionIfUnused($projectID, $version)
+	private function deleteEmptyVersions($projectID)
+	{
+		$criteria = new CDbCriteria;
+		$criteria->condition = 't.project_id=:projectID AND NOT EXISTS '
+			.'(SELECT 1 FROM {{crashreport}} cr WHERE cr.appversion_id=t.id)';
+		$criteria->params = array(':projectID'=>$projectID);
+		$criteria->order = 't.id ASC';
+		$versions = AppVersion::model()->findAll($criteria);
+		$deleted = 0;
+		foreach ($versions as $version) {
+			if ($this->deleteVersionIfUnused($projectID, $version, true))
+				$deleted++;
+		}
+		echo "Empty versions: " . count($versions) . " candidates, $deleted deleted, "
+			.(count($versions) - $deleted)." skipped.\n";
+		return 0;
+	}
+
+	private function deleteVersionIfUnused($projectID, $version, $skipReferenced=false)
 	{
 		$db = Yii::app()->db;
 		$transaction = $db->beginTransaction();
@@ -180,7 +218,7 @@ class CleanCommand extends CConsoleCommand
 			if ($remaining > 0) {
 				$transaction->rollback();
 				echo "Version $version->version retained: $remaining crash reports remain.\n";
-				return;
+				return false;
 			}
 
 			$checks = array(
@@ -193,8 +231,13 @@ class CleanCommand extends CConsoleCommand
 			);
 			foreach ($checks as $name=>$sql) {
 				$count = (int)$db->createCommand($sql)->queryScalar($params);
-				if ($count > 0)
-					throw new Exception("Cannot delete version $version->version: $count $name records still reference it.");
+				if ($count > 0) {
+					if (!$skipReferenced)
+						throw new Exception("Cannot delete version $version->version: $count $name records still reference it.");
+					$transaction->rollback();
+					echo "Skipped version $version->version: $count $name records still reference it.\n";
+					return false;
+				}
 			}
 
 			$groups = CrashGroup::model()->findAllByAttributes(array(
@@ -210,6 +253,7 @@ class CleanCommand extends CConsoleCommand
 				throw new Exception("Could not delete version $version->version.");
 			$transaction->commit();
 			echo "Deleted version $version->version and " . count($groups) . " empty collections.\n";
+			return true;
 		} catch (Exception $e) {
 			if ($transaction->active)
 				$transaction->rollback();

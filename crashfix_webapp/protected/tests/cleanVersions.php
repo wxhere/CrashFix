@@ -136,4 +136,61 @@ try {
 }
 checkClean(countClean('crashreport', 'id=3') === 1 && countClean('crashgroup', 'id=12') === 1,
     'blocked collection deletion does not cascade to another version');
+// Bulk cleanup must never enter the report-deletion loop.
+seedClean('project', array('id'=>2, 'name'=>'other'));
+foreach (array(5, 6, 7, 8, 9) as $id) {
+    seedClean('appversion', array('id'=>$id, 'project_id'=>$id === 9 ? 2 : 1,
+        'version'=>'bulk-'.$id));
+}
+seedClean('bug', array('appversion_id'=>5));
+seedClean('debuginfo', array('appversion_id'=>6));
+seedClean('crashgroup', array('id'=>20, 'project_id'=>1, 'appversion_id'=>7,
+    'title'=>'empty', 'status'=>1, 'created'=>1, 'md5'=>str_repeat('d', 32)));
+seedClean('user', array('id'=>2, 'cur_appversion_id'=>7));
+function runEmptyVersions($command, $extra=array())
+{
+    ob_start();
+    try {
+        $result = $command->run(array_merge(array('project=bitcomet', 'emptyversions=1'), $extra));
+        return array($result, ob_get_contents());
+    } finally {
+        ob_end_clean();
+    }
+}
+foreach (array(array(), array('maintenance=1', 'appver=bulk-7'),
+    array('maintenance=1', 'limit=1'), array('maintenance=1', 'deleteversion=1'),
+    array('maintenance=1', 'emptyversions=invalid')) as $extra) {
+    $rejected = false;
+    try {
+        runEmptyVersions($command, $extra);
+    } catch (Exception $e) {
+        $rejected = true;
+    }
+    checkClean($rejected, 'unsafe or ambiguous bulk options rejected: '.implode(' ', $extra));
+}
+checkClean(countClean('appversion', 'id=7') === 1, 'invalid bulk options do not delete versions');
+$reportsBefore = countClean('crashreport');
+list($result, $output) = runEmptyVersions($command, array('maintenance=1'));
+checkClean($result === 0 && strpos($output, '2 deleted, 4 skipped') !== false,
+    'bulk cleanup continues after referenced versions and prints summary');
+checkClean(countClean('appversion', 'id IN (7,8)') === 0 &&
+    countClean('crashgroup', 'id=20') === 0, 'all unreferenced empty versions and collections removed');
+checkClean($db->createCommand('SELECT cur_appversion_id FROM {{user}} WHERE id=2')->queryScalar() === null,
+    'bulk cleanup clears saved version selection');
+checkClean(countClean('appversion', 'id IN (3,4,5,6)') === 4,
+    'bulk cleanup preserves bug, symbol and collection references');
+checkClean(countClean('crashreport') === $reportsBefore && countClean('appversion', 'id=2') === 1,
+    'bulk cleanup preserves reports and nonempty versions');
+checkClean(countClean('appversion', 'id=9') === 1, 'bulk cleanup isolates the requested project');
+list($result, $output) = runEmptyVersions($command, array('maintenance=1'));
+checkClean($result === 0 && strpos($output, '0 deleted, 4 skipped') !== false,
+    'repeating bulk cleanup succeeds without further changes');
+$db->createCommand()->delete('{{bug_crashgroup}}');
+$db->createCommand()->delete('{{bug}}');
+$db->createCommand()->delete('{{debuginfo}}');
+$db->createCommand()->update('{{crashreport}}', array('groupid'=>0), 'id=3');
+runEmptyVersions($command, array('maintenance=1'));
+list($result, $output) = runEmptyVersions($command, array('maintenance=1'));
+checkClean($result === 0 && strpos($output, '0 candidates, 0 deleted, 0 skipped') !== false,
+    'bulk cleanup succeeds when there are no empty versions');
 echo "All clean-version checks passed.\n";
